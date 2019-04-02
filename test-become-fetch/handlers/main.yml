@@ -1,2 +1,12 @@
 ---
 # handlers file for test-become-fetch
+# I can see both handlers called, but the files remain behind.
+- name: delete remote temporary directory
+  file:
+    path: "{{ remote_tmp_dir }}"
+    state: absent
+- name: delete local temporary directory
+  delegate_to: localhost
+  file:
+    path: "{{ output_dir }}"
+    state: absent

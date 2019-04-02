@@ -1,4 +1,53 @@
 ---
+- name: note the home directory for the Ansible user
+  set_fact: 
+    remote_user_home: "{{ ansible_env.HOME }}"
+
+- debug: var=remote_user_home
+
+- name: create remote temporary directory
+  tempfile:
+    state: directory
+    suffix: .test
+  register: remote_tmp_dir_raw
+  notify:
+    - delete remote temporary directory
+
+- debug: var=ansible_facts
+
+- name: record remote temporary directory
+  set_fact:
+    remote_tmp_dir: "{{ remote_tmp_dir_raw.path }}"
+
+- debug: var=remote_tmp_dir
+
+- name: create local temporary directory
+  delegate_to: localhost
+  tempfile:
+    state: directory
+    suffix: .localtest
+  register: output_dir_raw
+  notify:
+    - delete local temporary directory
+
+- name: record local temporary directory
+  set_fact:
+    output_dir: "{{ output_dir_raw.path }}"
+
+- debug: var=output_dir
+
+- name: get remote temporary directory info
+  stat:
+    path: "{{ remote_tmp_dir }}"
+  register: remote_tmp_dir_stat
+
+- debug: var=remote_tmp_dir_stat
+
+- name: confirm remote temporary directory exists
+  assert:
+    that:
+      - remote_tmp_dir_stat.stat.exists == True
+
 - name: create a file that we can use to fetch
   copy: content="test" dest={{ remote_tmp_dir }}/orig
 
@@ -16,16 +65,62 @@
       - 'fetched["remote_checksum"] == "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"'
       - 'lookup("file", output_dir + "/fetched/" + inventory_hostname + remote_tmp_dir + "/orig") == "test"'
 
-- name: create a non-root user
-  user: name=ansible_test comment='User for Ansible integration testing'
-
-TODO: use authorized_key to install SSH key for login to this new user
-
-- name: create a file that we can use to fetch as root
-  copy: content="test" dest={{ remote_tmp_dir }}/orig.root owner="root" mode=0600
+# Set up for some 'become' tests. Like the 'copy' module tests
+# we first need to have an unprivileged user with the same 
+# ssh key as our regular user allowed for login.
+- name: Create remote unprivileged remote user
+  user:
+    name: '{{ remote_unprivileged_user }}'
+  register: user
   become: true
 
-- name: attempt to grab file without root privileges
+- name: Create remote user `.ssh` directory
+  become: true
+  file:
+    path: "{{ user.home }}/.ssh"
+    owner: '{{ remote_unprivileged_user }}'
+    state: directory
+    mode: 0700
+ 
+- name: Duplicate authorized_keys
+  become: true
+  copy:
+    src: '{{ remote_user_home }}/.ssh/authorized_keys'
+    dest: '{{ user.home }}/.ssh/authorized_keys'
+    owner: '{{ remote_unprivileged_user }}'
+    mode: 0600
+    remote_src: yes
+    
+- name: create a file that we can use to fetch as root
+  become: true
+  copy: content="test" dest={{ remote_tmp_dir }}/orig.root owner="root" mode=0600
+
+- name: attempt to fetch the only-root-readable test file using a non-root user, should fail
   fetch: src={{ remote_tmp_dir }}/orig.root dest={{ output_dir }}/fetched
+  remote_user: '{{ remote_unprivileged_user }}'
+  register: failed_fetch_root_owned_file
+  ignore_errors: true
 
+- debug: var=failed_fetch_root_owned_file
 
+- name: check that fetching a root-owned non-readable file indeed failed
+  assert:
+    that:
+      - "failed_fetch_root_owned_file is failed"
+      - "failed_fetch_root_owned_file.msg"
+
+- name: fetch the root-readable test file using 'become'
+  fetch: src={{ remote_tmp_dir }}/orig.root dest={{ output_dir }}/fetched
+  remote_user: '{{ remote_unprivileged_user }}'
+  become: true
+  register: fetched
+
+- debug: var=fetched
+
+- name: Assert that we fetched correctly
+  assert:
+    that:
+      - 'fetched["changed"] == True'
+      - 'fetched["checksum"] == "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"'
+      - 'fetched["remote_checksum"] == "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"'
+      - 'lookup("file", output_dir + "/fetched/" + inventory_hostname + remote_tmp_dir + "/orig.root") == "test"'
