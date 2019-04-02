@@ -10,10 +10,15 @@
     docker_container:
       name: docker_ansible_nonroot_test
       image: centos:centos7
+    register: docker_info
+
+  - debug: var=docker_info
 
   - name: add new docker container to the inventory for later connecting
     add_host:
       name: docker_ansible_nonroot_test
+      # TODO: add IP info hostname: {{ "docker_info" ...
+      # However, even with IP info, I'd still need to connect as some user (probably directly as root)
 
   - name: collect facts on the new docker image
     delegate_to: docker_ansible_nonroot_test
