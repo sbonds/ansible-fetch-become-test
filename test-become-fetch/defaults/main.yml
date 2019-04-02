@@ -1,0 +1,3 @@
+---
+# defaults file for test-become-fetch
+remote_unprivileged_user: tmp_ansible_test_user

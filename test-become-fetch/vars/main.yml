@@ -1,0 +1,3 @@
+---
+# vars file for test-become-fetch
+output_dir: ~/ansible_testing

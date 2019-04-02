@@ -1,0 +1,31 @@
+---
+- name: create a file that we can use to fetch
+  copy: content="test" dest={{ remote_tmp_dir }}/orig
+
+- name: fetch the test file
+  fetch: src={{ remote_tmp_dir }}/orig dest={{ output_dir }}/fetched
+  register: fetched
+
+- debug: var=fetched
+
+- name: Assert that we fetched correctly
+  assert:
+    that:
+      - 'fetched["changed"] == True'
+      - 'fetched["checksum"] == "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"'
+      - 'fetched["remote_checksum"] == "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"'
+      - 'lookup("file", output_dir + "/fetched/" + inventory_hostname + remote_tmp_dir + "/orig") == "test"'
+
+- name: create a non-root user
+  user: name=ansible_test comment='User for Ansible integration testing'
+
+TODO: use authorized_key to install SSH key for login to this new user
+
+- name: create a file that we can use to fetch as root
+  copy: content="test" dest={{ remote_tmp_dir }}/orig.root owner="root" mode=0600
+  become: true
+
+- name: attempt to grab file without root privileges
+  fetch: src={{ remote_tmp_dir }}/orig.root dest={{ output_dir }}/fetched
+
+
